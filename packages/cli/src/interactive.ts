@@ -671,7 +671,7 @@ async function chatInConversation(conversationId: string): Promise<void> {
       console.log('--- End ---\n');
     }
   } catch {
-    // 忽略历史拉取错误
+    // 历史拉取失败是正常的（新会话或 Store 节点不可用）
   }
 
   // 聊天循环

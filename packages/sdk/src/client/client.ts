@@ -546,7 +546,8 @@ export class ChatClient implements IChatClient {
         }
       }
     } catch (error) {
-      console.error('Error handling incoming message:', error);
+      // Silently ignore decode errors - these are usually messages from other apps
+      // on the public Waku network that use different message formats
       if (this.config.onError) {
         this.config.onError(error as Error);
       }
@@ -736,9 +737,8 @@ export class ChatClient implements IChatClient {
         await this.messageStorage!.saveMessage(message);
 
         messages.push(message);
-      } catch (error) {
-        // Skip messages that can't be decoded
-        console.warn('Error decoding history message:', error);
+      } catch {
+        // Skip messages that can't be decoded (from other apps)
         continue;
       }
     }

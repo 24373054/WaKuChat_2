@@ -137,9 +137,8 @@ export abstract class BaseWakuAdapter implements WakuAdapter {
           }
         }
       }
-    } catch (error) {
-      // Store query may fail if no store peers available
-      console.warn('Store query failed:', error);
+    } catch {
+      // Store query may fail if no store peers available - this is normal
     }
 
     return { messages };
