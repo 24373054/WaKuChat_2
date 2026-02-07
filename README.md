@@ -23,9 +23,10 @@ pnpm build
 
 # 启动 Web 客户端
 pnpm web
-```
 
-访问 http://localhost:5173
+# 或使用 CLI
+pnpm cli
+```
 
 ### 一键启动（Windows）
 
@@ -39,13 +40,45 @@ start.bat
 ./start.sh
 ```
 
-## 网络模式
+## Web 客户端
+
+访问 http://localhost:5173
+
+### 网络模式
 
 | 模式 | URL | 说明 |
 |------|-----|------|
 | 公共网络 | `localhost:5173` | 默认，连接 Waku 公共网络 |
 | 本地网络 | `localhost:5173?local=true` | 连接本地 @waku/run 节点 |
 | Mock | `localhost:5173?mock=true` | 本地开发测试（标签页间同步） |
+
+## CLI 客户端
+
+```bash
+# 进入 CLI 目录
+cd packages/cli
+
+# 身份管理
+pnpm start identity create          # 创建身份
+pnpm start identity show            # 显示当前身份
+pnpm start identity export          # 导出身份
+
+# 会话管理
+pnpm start conv create-dm           # 创建单聊
+pnpm start conv create-group        # 创建群聊
+pnpm start conv list                # 列出所有会话
+pnpm start conv invite <group-id>   # 生成群邀请
+pnpm start conv join                # 加入群聊
+
+# 消息
+pnpm start msg send <conv-id> "Hello"   # 发送消息
+pnpm start msg history <conv-id>        # 查看历史
+pnpm start msg revoke <conv-id> <msg-id> # 撤回消息
+
+# 交互式聊天
+pnpm start chat                     # 进入聊天模式
+pnpm start chat <conv-id>           # 直接进入指定会话
+```
 
 ## 本地 Waku 网络（可选）
 
@@ -101,7 +134,7 @@ await client.destroy();
 
 ### 2 人单聊
 
-1. 打开两个浏览器窗口
+1. 打开两个浏览器窗口（或两个终端运行 CLI）
 2. 各自创建身份，记录 User ID 和 Public Key
 3. 互相创建 Direct Message，输入对方的 User ID 和 Public Key
 4. 发送消息，双方都能收到
@@ -109,7 +142,7 @@ await client.destroy();
 ### 3 人群聊
 
 1. 用户 A 创建群组
-2. 用户 A 点击群组信息，生成邀请（需要输入 B 的 User ID 和 Public Key）
+2. 用户 A 生成邀请（需要输入 B 的 User ID 和 Public Key）
 3. 用户 B 使用邀请数据加入群组
 4. 重复步骤 2-3 邀请用户 C
 5. 三人可以互相发送消息
@@ -117,7 +150,7 @@ await client.destroy();
 ### 消息撤回
 
 1. 用户 A 发送一条消息
-2. 用户 A 点击消息旁的撤回按钮
+2. 用户 A 撤回该消息
 3. 用户 B 和 C 看到该消息显示为"已撤回"
 
 ## 项目结构
@@ -145,7 +178,8 @@ pnpm test
 - TypeScript
 - React + Vite
 - @noble/secp256k1 - 加密库
-- IndexedDB - 本地存储
+- IndexedDB / LevelDB - 本地存储
+- Commander.js - CLI 框架
 
 ## License
 
