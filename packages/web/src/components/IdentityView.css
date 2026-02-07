@@ -1,0 +1,214 @@
+/* 身份页面 - 简洁干净 */
+
+.identity-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #f0f2f5;
+}
+
+.identity-card {
+  background: white;
+  border-radius: 12px;
+  padding: 32px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.identity-card h1 {
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 4px;
+  color: #1a1a1a;
+}
+
+.identity-card .subtitle {
+  color: #8e8e93;
+  text-align: center;
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+
+.identity-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #8e8e93;
+}
+
+.identity-card .input,
+.identity-card textarea {
+  width: 100%;
+  padding: 12px 14px;
+  background: #f5f5f5;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 15px;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.identity-card .input:focus,
+.identity-card textarea:focus {
+  background: #fff;
+  border-color: #007aff;
+  outline: none;
+}
+
+.identity-card .input::placeholder,
+.identity-card textarea::placeholder {
+  color: #c7c7cc;
+}
+
+.identity-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.identity-actions .btn {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.identity-actions .btn-primary {
+  background: #007aff;
+  color: white;
+}
+
+.identity-actions .btn-primary:hover {
+  background: #0066d6;
+}
+
+.identity-actions .btn-primary:disabled {
+  background: #c7c7cc;
+}
+
+.identity-actions .btn-secondary {
+  background: #f5f5f5;
+  color: #1a1a1a;
+}
+
+.identity-actions .btn-secondary:hover {
+  background: #e5e5ea;
+}
+
+.identity-actions .btn-text {
+  background: none;
+  color: #007aff;
+  padding: 8px;
+}
+
+.identity-actions .btn-text:hover {
+  background: #f5f5f5;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #c7c7cc;
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e5e5ea;
+}
+
+/* 创建成功页面 */
+.success-icon {
+  width: 56px;
+  height: 56px;
+  background: #34c759;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin: 0 auto 20px;
+}
+
+.identity-info {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.identity-info .label {
+  font-size: 11px;
+  color: #8e8e93;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.identity-info .value {
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  color: #1a1a1a;
+  line-height: 1.4;
+}
+
+.identity-info .value.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.warning-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  background: #fff9e6;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #946800;
+  margin-bottom: 20px;
+  line-height: 1.4;
+}
+
+/* 加载动画 */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

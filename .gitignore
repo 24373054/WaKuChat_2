@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+
+# Generated files
+packages/sdk/src/proto/messages.js
+packages/sdk/src/proto/messages.d.ts
+
+# Reference/demo data (not part of the project)
+WaKuChat_3-main/
+WaKuChat_3-ref/
+WaKuChat_3-main.zip
+.demo-data/
+localhost.har
+
+# js-waku source (reference only)
+js-waku-src/
+
+# Lock files (use pnpm-lock.yaml)
+package-lock.json

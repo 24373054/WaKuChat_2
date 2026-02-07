@@ -1,0 +1,55 @@
+{
+  "name": "@waku-chat/sdk",
+  "version": "1.0.0",
+  "description": "Encrypted chat SDK core library based on Waku",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./identity": {
+      "import": "./dist/identity/index.js",
+      "types": "./dist/identity/index.d.ts"
+    },
+    "./crypto": {
+      "import": "./dist/crypto/index.js",
+      "types": "./dist/crypto/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "proto:generate": "pbjs -t static-module -w es6 -o src/proto/messages.js src/proto/messages.proto && pbts -o src/proto/messages.d.ts src/proto/messages.js"
+  },
+  "keywords": [
+    "waku",
+    "chat",
+    "sdk",
+    "encrypted"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@libp2p/peer-id": "^6.0.4",
+    "@multiformats/multiaddr": "12.5.1",
+    "@noble/hashes": "^1.4.0",
+    "@noble/secp256k1": "^2.1.0",
+    "@waku/sdk": "^0.0.36",
+    "level": "^10.0.0",
+    "protobufjs": "^7.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "fast-check": "^3.17.0",
+    "protobufjs-cli": "^1.1.2",
+    "tsup": "^8.0.0",
+    "vitest": "^1.4.0"
+  }
+}

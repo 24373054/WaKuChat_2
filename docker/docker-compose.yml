@@ -1,0 +1,114 @@
+# Waku Encrypted Chat - Local Test Network
+# 3 nwaku nodes with Relay, Filter, LightPush, and Store protocols enabled
+
+services:
+  nwaku1:
+    image: wakuorg/nwaku:latest
+    container_name: nwaku1
+    ports:
+      - "18545:8645"  # REST API
+      - "18000:8000"  # WebSocket
+    command:
+      - --rest=true
+      - --rest-address=0.0.0.0
+      - --rest-port=8645
+      - --relay=true
+      - --filter=true
+      - --lightpush=true
+      - --store=true
+      - --rln-relay=false
+      - --cluster-id=0
+      - --log-level=INFO
+      - --websocket-support=true
+      - --websocket-port=8000
+    volumes:
+      - nwaku1-data:/data
+    networks:
+      waku-network:
+        ipv4_address: 172.20.0.10
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8645/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  nwaku2:
+    image: wakuorg/nwaku:latest
+    container_name: nwaku2
+    ports:
+      - "18546:8645"  # REST API
+      - "18001:8000"  # WebSocket
+    command:
+      - --rest=true
+      - --rest-address=0.0.0.0
+      - --rest-port=8645
+      - --relay=true
+      - --filter=true
+      - --lightpush=true
+      - --store=true
+      - --rln-relay=false
+      - --cluster-id=0
+      - --log-level=INFO
+      - --websocket-support=true
+      - --websocket-port=8000
+    volumes:
+      - nwaku2-data:/data
+    networks:
+      waku-network:
+        ipv4_address: 172.20.0.11
+    depends_on:
+      nwaku1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8645/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  nwaku3:
+    image: wakuorg/nwaku:latest
+    container_name: nwaku3
+    ports:
+      - "18547:8645"  # REST API
+      - "18002:8000"  # WebSocket
+    command:
+      - --rest=true
+      - --rest-address=0.0.0.0
+      - --rest-port=8645
+      - --relay=true
+      - --filter=true
+      - --lightpush=true
+      - --store=true
+      - --rln-relay=false
+      - --cluster-id=0
+      - --log-level=INFO
+      - --websocket-support=true
+      - --websocket-port=8000
+    volumes:
+      - nwaku3-data:/data
+    networks:
+      waku-network:
+        ipv4_address: 172.20.0.12
+    depends_on:
+      nwaku2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8645/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  nwaku1-data:
+  nwaku2-data:
+  nwaku3-data:
+
+networks:
+  waku-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

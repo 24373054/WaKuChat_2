@@ -1,0 +1,37 @@
+{
+  "name": "@waku-chat/cli",
+  "version": "1.0.0",
+  "description": "CLI demo for Waku encrypted chat SDK",
+  "type": "module",
+  "bin": {
+    "waku-chat": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "waku",
+    "chat",
+    "cli"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@waku-chat/sdk": "workspace:*",
+    "commander": "^12.0.0",
+    "inquirer": "^9.2.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "tsx": "^4.7.0",
+    "@types/node": "^20.0.0",
+    "@types/inquirer": "^9.0.0"
+  }
+}

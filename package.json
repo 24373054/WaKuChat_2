@@ -1,0 +1,46 @@
+{
+  "name": "waku-encrypted-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Encrypted chat SDK based on Waku P2P protocol",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "web": "cd packages/web && node node_modules/vite/bin/vite.js",
+    "web:build": "cd packages/web && node node_modules/vite/bin/vite.js build",
+    "cli": "cd packages/cli && node dist/index.js",
+    "start": "pnpm web",
+    "format": "prettier --write \"packages/**/*.{ts,tsx,json}\"",
+    "format:check": "prettier --check \"packages/**/*.{ts,tsx,json}\""
+  },
+  "keywords": [
+    "waku",
+    "chat",
+    "encrypted",
+    "p2p",
+    "decentralized"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "@multiformats/multiaddr": "12.5.1"
+    }
+  },
+  "resolutions": {
+    "@multiformats/multiaddr": "12.5.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^7.0.0"
+  }
+}
