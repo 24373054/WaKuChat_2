@@ -782,6 +782,32 @@ export class ChatClient implements IChatClient {
   }
 
   /**
+   * Restore a conversation from stored data and session key
+   * Useful for CLI/apps that manage their own storage
+   */
+  async restoreConversation(data: {
+    id: string;
+    type: 'direct' | 'group';
+    name?: string;
+    members: string[];
+    admins: string[];
+    sessionKey: Uint8Array;
+    groupKeyVersion?: number;
+  }): Promise<Conversation> {
+    this.ensureInitialized();
+    this.ensureIdentity();
+
+    // Register public keys for members if available
+    for (const memberId of data.members) {
+      if (memberId !== this.identity!.userId) {
+        // The caller should register public keys separately if needed
+      }
+    }
+
+    return this.conversationManager!.restoreConversation(data);
+  }
+
+  /**
    * Get group members
    */
   async getGroupMembers(groupId: string): Promise<GroupMember[]> {

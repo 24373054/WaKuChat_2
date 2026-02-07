@@ -441,7 +441,20 @@ async function createDirectMessage(): Promise<void> {
     
     console.log('✅ Conversation created!');
     console.log(`   ID: ${conv.id}`);
-    await pause();
+    
+    // 询问是否立即进入聊天
+    const { enterChat } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'enterChat',
+        message: 'Enter chat now?',
+        default: true,
+      },
+    ]);
+    
+    if (enterChat) {
+      await chatInConversation(conv.id);
+    }
   } catch (error) {
     console.error('❌ Failed:', (error as Error).message);
     await pause();
@@ -483,7 +496,20 @@ async function createGroup(): Promise<void> {
     
     console.log('✅ Group created!');
     console.log(`   ID: ${conv.id}`);
-    await pause();
+    
+    // 询问是否立即进入聊天
+    const { enterChat } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'enterChat',
+        message: 'Enter chat now?',
+        default: true,
+      },
+    ]);
+    
+    if (enterChat) {
+      await chatInConversation(conv.id);
+    }
   } catch (error) {
     console.error('❌ Failed:', (error as Error).message);
     await pause();
@@ -532,7 +558,20 @@ async function joinGroup(): Promise<void> {
     saveConversation(convData);
     
     console.log('✅ Joined group!');
-    await pause();
+    
+    // 询问是否立即进入聊天
+    const { enterChat } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'enterChat',
+        message: 'Enter chat now?',
+        default: true,
+      },
+    ]);
+    
+    if (enterChat) {
+      await chatInConversation(conv.id);
+    }
   } catch (error) {
     console.error('❌ Failed:', (error as Error).message);
     await pause();
@@ -551,35 +590,51 @@ async function chatInConversation(conversationId: string): Promise<void> {
 
   const conv = getConversation(conversationId);
   if (!conv) {
-    console.error('❌ Conversation not found');
+    console.error('❌ Conversation not found in local storage');
     await pause();
     return;
   }
 
   // 恢复会话到 client
+  console.log('\n🔄 Restoring conversation...');
   try {
-    if (conv.type === 'direct' && conv.peerPublicKey) {
-      const peerUserId = conv.members.find(m => m !== currentIdentity!.userId) || conv.members[0];
-      await client.createDirectConversation(peerUserId, hexToBytes(conv.peerPublicKey));
-    } else if (conv.type === 'group') {
-      await client.joinGroupConversation({
-        groupId: conv.id,
-        groupName: conv.name || 'Group',
-        encryptedGroupKey: hexToBytes(conv.sessionKey),
+    // 检查会话是否已经在 client 中
+    let existingConv = client.getConversation(conv.id);
+    
+    if (!existingConv) {
+      // 使用 restoreConversation 方法恢复会话
+      await client.restoreConversation({
+        id: conv.id,
+        type: conv.type,
+        name: conv.name,
         members: conv.members,
         admins: conv.admins,
-        keyVersion: 1,
+        sessionKey: hexToBytes(conv.sessionKey),
+        groupKeyVersion: 1,
       });
+      
+      // 如果是单聊，注册对方的公钥
+      if (conv.type === 'direct' && conv.peerPublicKey) {
+        const peerUserId = conv.members.find(m => m !== currentIdentity!.userId) || conv.members[0];
+        client.registerPublicKey(peerUserId, hexToBytes(conv.peerPublicKey));
+      }
+      
+      console.log('✅ Conversation restored');
+    } else {
+      console.log('✅ Conversation already active');
     }
-  } catch {
-    // 可能已经存在，忽略
+  } catch (error) {
+    console.error('❌ Could not restore conversation:', (error as Error).message);
+    await pause();
+    return;
   }
 
   console.clear();
   const convName = conv.name || truncate(conv.id, 20);
   console.log(`\n💬 ${convName}\n`);
   console.log('─'.repeat(60));
-  console.log('  Commands: /send <msg>, /history, /revoke <id>, /invite, /back');
+  console.log('  Type message and press Enter to send');
+  console.log('  Commands: /history, /revoke <id>, /invite, /back');
   console.log('─'.repeat(60));
 
   // 订阅消息

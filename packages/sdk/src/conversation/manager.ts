@@ -430,4 +430,46 @@ export class ConversationManager {
     await this.storage.delete(conversationId);
     this.conversations.delete(conversationId);
   }
+
+  /**
+   * Restore a conversation from stored data and session key
+   * Useful for CLI/apps that manage their own storage
+   */
+  async restoreConversation(
+    data: {
+      id: string;
+      type: 'direct' | 'group';
+      name?: string;
+      members: string[];
+      admins: string[];
+      sessionKey: Uint8Array;
+      groupKeyVersion?: number;
+    }
+  ): Promise<Conversation> {
+    // Check if already exists
+    const existing = this.conversations.get(data.id);
+    if (existing) {
+      return existing;
+    }
+
+    // Create conversation from data
+    const conversation = Conversation.restore(
+      {
+        id: data.id,
+        type: data.type,
+        name: data.name,
+        createdAt: Date.now(),
+        members: data.members,
+        admins: data.admins,
+        groupKeyVersion: data.groupKeyVersion ?? 1,
+      },
+      data.sessionKey
+    );
+
+    // Store and cache
+    await this.storage.save(conversation);
+    this.conversations.set(conversation.id, conversation);
+
+    return conversation;
+  }
 }

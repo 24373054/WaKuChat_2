@@ -58,6 +58,15 @@ export interface IChatClient {
   leaveConversation(conversationId: string): Promise<void>;
   getConversations(): Conversation[];
   getConversation(conversationId: string): Conversation | undefined;
+  restoreConversation(data: {
+    id: string;
+    type: 'direct' | 'group';
+    name?: string;
+    members: string[];
+    admins: string[];
+    sessionKey: Uint8Array;
+    groupKeyVersion?: number;
+  }): Promise<Conversation>;
 
   // Message operations
   sendMessage(conversationId: string, content: string): Promise<string>;
