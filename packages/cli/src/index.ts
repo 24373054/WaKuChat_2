@@ -8,6 +8,7 @@ import { identityCommand } from './commands/identity.js';
 import { conversationCommand } from './commands/conversation.js';
 import { messageCommand } from './commands/message.js';
 import { chatCommand } from './commands/chat.js';
+import { startInteractive } from './interactive.js';
 
 const program = new Command();
 
@@ -22,10 +23,18 @@ program.addCommand(conversationCommand);
 program.addCommand(messageCommand);
 program.addCommand(chatCommand);
 
-// Show help if no command provided
-if (process.argv.length <= 2) {
-  program.help();
-}
+// Interactive mode command
+program
+  .command('interactive')
+  .alias('i')
+  .description('Start interactive mode with full UI')
+  .action(async () => {
+    await startInteractive();
+  });
 
-// Parse arguments
-program.parse();
+// If no arguments, start interactive mode
+if (process.argv.length <= 2) {
+  startInteractive();
+} else {
+  program.parse();
+}

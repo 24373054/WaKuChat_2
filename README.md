@@ -24,20 +24,8 @@ pnpm build
 # 启动 Web 客户端
 pnpm web
 
-# 或使用 CLI
+# 或使用 CLI（交互式界面）
 pnpm cli
-```
-
-### 一键启动（Windows）
-
-```bash
-start.bat
-```
-
-### 一键启动（Linux/macOS）
-
-```bash
-./start.sh
 ```
 
 ## Web 客户端
@@ -55,7 +43,25 @@ start.bat
 ## CLI 客户端
 
 ```bash
-# 进入 CLI 目录
+# 启动交互式界面（推荐）
+pnpm cli
+
+# 或者使用单独的命令
+pnpm cli:help                       # 查看所有命令
+```
+
+### 交互式界面
+
+运行 `pnpm cli` 会进入完整的交互式界面，包括：
+- 创建/导入身份
+- 创建单聊/群聊
+- 发送消息、查看历史
+- 撤回消息
+- 生成群邀请
+
+### 命令行模式
+
+```bash
 cd packages/cli
 
 # 身份管理
