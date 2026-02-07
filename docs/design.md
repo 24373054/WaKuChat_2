@@ -1,8 +1,24 @@
 # Waku 加密聊天 SDK 设计文档
 
-本文档详细说明 Waku 加密聊天 SDK 的架构设计和实现细节。
+## 1. 项目概述
 
-## 1. 系统架构
+基于 Waku 去中心化 P2P 通信协议封装的端到端加密聊天 SDK，支持单聊、群聊、消息撤回与删除。
+
+### 1.1 功能清单
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 单聊 (1:1) | ✅ | ECDH 派生会话密钥 |
+| 群聊 (N:N) | ✅ | 群组密钥 + ECIES 分发 |
+| 消息撤回 | ✅ | tombstone 控制消息 |
+| 本地删除 | ✅ | 仅影响本地存储 |
+| 历史消息 | ✅ | Store 协议拉取 |
+| 轻节点模式 | ✅ | LightPush + Filter |
+| 消息去重 | ✅ | messageId 去重缓存 |
+| 消息重发 | ✅ | 指数退避重试 |
+| 权限模型 | ✅ | 群管理员可撤回他人消息 |
+
+### 1.2 系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -18,14 +34,14 @@
 │  │                   ChatClient                          │   │
 │  │  - init() / destroy()                                │   │
 │  │  - createIdentity() / loadIdentity()                 │   │
-│  │  - createConversation() / joinConversation()         │   │
+│  │  - createDirectConversation() / createGroupConversation()│
 │  │  - sendMessage() / subscribe()                       │   │
 │  │  - revokeMessage() / deleteLocalMessage()            │   │
 │  │  - fetchHistory()                                    │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                            │                                 │
 │  ┌─────────────┐  ┌────────┴───────┐  ┌─────────────────┐   │
-│  │IdentityMgr  │  │ConversationMgr │  │  MessageHandler │   │
+│  │  Identity   │  │ConversationMgr │  │  MessageSender  │   │
 │  └─────────────┘  └────────────────┘  └─────────────────┘   │
 │                            │                                 │
 │  ┌─────────────┐  ┌────────┴───────┐  ┌─────────────────┐   │
@@ -37,306 +53,257 @@
 │                    Waku 协议适配层                            │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │                  WakuAdapter                          │   │
-│  │  - RelayAdapter / LightAdapter / MockAdapter         │   │
-│  │  - Relay / LightPush / Filter / Store                │   │
+│  │  - LightAdapter (LightPush + Filter + Store)         │   │
+│  │  - RelayAdapter (Relay + Store)                      │   │
+│  │  - MockAdapter (本地开发测试)                          │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────┬───────────────────────────────┘
                               │
 ┌─────────────────────────────┴───────────────────────────────┐
 │                    Waku 网络层                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
-│  │  nwaku   │  │  nwaku   │  │  nwaku   │                   │
-│  │  node 1  │  │  node 2  │  │  node 3  │                   │
-│  └──────────┘  └──────────┘  └──────────┘                   │
+│         公共 Waku 网络 / 本地 @waku/run 节点                  │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## 2. Waku 协议关键概念
 
 ### 2.1 pubsub topic vs content topic
 
-**pubsub topic（路由层）**
-- 定义消息在 P2P 网络中的传播范围
-- 所有订阅同一 pubsub topic 的节点会收到该 topic 下的所有消息
-- 本项目使用统一的 pubsub topic：`/waku/2/encrypted-chat/proto`
+| 概念 | 层级 | 作用 | 本项目使用 |
+|------|------|------|-----------|
+| pubsub topic | 路由层 | 定义消息在 P2P 网络中的传播范围 | `/waku/2/default-waku/proto` |
+| content topic | 应用层 | 在 pubsub topic 内部进行消息过滤 | `/encrypted-chat/1/{type}/{id}/proto` |
 
-**content topic（应用层）**
-- 用于在 pubsub topic 内部进行消息过滤和分类
-- 客户端可以只订阅感兴趣的 content topic
-- 格式：`/encrypted-chat/1/{conversationType}/{conversationId}/proto`
+**pubsub topic**：所有订阅同一 pubsub topic 的节点会收到该 topic 下的所有消息。本项目使用 Waku 默认的 pubsub topic，确保与公共网络兼容。
 
-**实现代码** (`packages/sdk/src/waku/topics.ts`):
-```typescript
-export const PUBSUB_TOPIC = '/waku/2/encrypted-chat/proto';
-export const CONTENT_TOPIC_PREFIX = '/encrypted-chat/1';
+**content topic**：客户端可以只订阅感兴趣的 content topic，实现应用层的消息过滤。格式设计：
 
-export function generateContentTopic(type: 'dm' | 'group' | 'system', id: string): string {
-  return `${CONTENT_TOPIC_PREFIX}/${type}/${id}/proto`;
-}
+```
+/encrypted-chat/1/{conversationType}/{conversationId}/proto
+
+示例：
+- 单聊: /encrypted-chat/1/dm/a1b2c3d4e5f6.../proto
+- 群聊: /encrypted-chat/1/group/g1h2i3j4k5l6.../proto
 ```
 
-### 2.2 Relay vs LightPush/Filter
+### 2.2 为什么选择 LightPush/Filter（轻节点）
 
-**Relay 模式（全节点）**
-- 节点参与消息路由，帮助转发其他节点的消息
-- 优点：去中心化程度高，不依赖特定服务节点
-- 缺点：资源消耗较大
-- 适用场景：桌面应用、服务器端
+本项目默认使用轻节点模式，原因如下：
 
-**LightPush + Filter 模式（轻节点）**
-- LightPush：将消息推送给服务节点
-- Filter：向服务节点订阅特定 content topic
-- 优点：资源消耗低
-- 缺点：依赖服务节点
-- 适用场景：移动应用、Web 应用
+| 对比项 | Relay（全节点） | LightPush/Filter（轻节点） |
+|--------|----------------|---------------------------|
+| 资源消耗 | 高（参与消息路由） | 低（仅收发自己的消息） |
+| 网络带宽 | 高 | 低 |
+| 启动时间 | 慢（需要建立路由表） | 快 |
+| 适用场景 | 服务器、桌面应用 | Web 应用、移动端 |
+| 去中心化程度 | 高 | 依赖服务节点 |
 
-**实现代码** (`packages/sdk/src/waku/base-adapter.ts`):
+**选择理由**：
+1. Web 应用是主要使用场景，资源受限
+2. 公共 Waku 网络提供了足够的服务节点
+3. 轻节点模式启动快，用户体验好
+
+**实现代码** (`packages/sdk/src/waku/light-adapter.ts`)：
 ```typescript
-export function createWakuAdapter(config: WakuAdapterConfig): WakuAdapter {
-  if (config.mockMode) {
-    return new MockWakuAdapter();
-  }
-  if (config.lightMode) {
-    return new LightWakuAdapter(config);
-  }
-  return new RelayWakuAdapter(config);
+// 使用 LightPush 发送消息
+async publish(contentTopic: string, payload: Uint8Array): Promise<void> {
+  const result = await this.node.lightPush.send(encoder, { payload });
+  // 处理结果...
+}
+
+// 使用 Filter 订阅消息
+async subscribe(contentTopic: string, handler: MessageHandler): Promise<Unsubscribe> {
+  const subscription = await this.node.filter.subscribe([decoder], handler);
+  return () => subscription.unsubscribe([contentTopic]);
+}
+
+// 使用 Store 拉取历史
+async queryHistory(contentTopic: string, options?: QueryOptions): Promise<QueryResult> {
+  const messages = await this.node.store.queryWithOrderedCallback([decoder], callback, options);
+  return { messages };
 }
 ```
 
 ### 2.3 消息唯一标识
 
 使用自定义方案生成 messageId：
+
 ```
-messageId = SHA256(timestamp + senderId + randomBytes(16))
+messageId = hex(SHA256(timestamp + senderId + random16bytes)[0:16])
 ```
 
-**实现代码** (`packages/sdk/src/message/message-id.ts`):
-```typescript
-export function generateMessageId(timestamp: number, senderId: string): string {
-  const random = new Uint8Array(16);
-  crypto.getRandomValues(random);
-  
-  const data = `${timestamp}:${senderId}:${bytesToHex(random)}`;
-  const hash = sha256(new TextEncoder().encode(data));
-  
-  return bytesToHex(hash.slice(0, 16));
-}
-```
+**设计考虑**：
+- 包含时间戳：便于排序和去重
+- 包含发送者 ID：防止不同用户生成相同 ID
+- 包含随机数：防止同一用户同一时刻发送多条消息时冲突
+- 截取 16 字节：足够唯一，又不会太长
+
+**可追溯性**：messageId 可用于：
+1. 消息去重
+2. 撤回时指定目标消息
+3. 历史消息查询时的游标
+
+---
 
 ## 3. 消息格式定义（Protobuf）
 
-**消息定义** (`packages/sdk/src/proto/messages.proto`):
-```protobuf
-syntax = "proto3";
-package encrypted_chat;
+### 3.1 消息类型
 
+```protobuf
 enum MessageType {
-  TEXT = 0;
-  REVOKE = 1;
-  KEY_EXCHANGE = 2;
-  GROUP_INVITE = 3;
-  GROUP_JOIN = 4;
-  GROUP_LEAVE = 5;
-  GROUP_KEY_UPDATE = 6;
+  TEXT = 0;           // 文本消息
+  REVOKE = 1;         // 撤回控制消息
+  KEY_EXCHANGE = 2;   // 密钥交换（预留）
+  GROUP_INVITE = 3;   // 群组邀请（预留）
 }
 
 enum ConversationType {
-  DIRECT = 0;
-  GROUP = 1;
+  DIRECT = 0;         // 单聊
+  GROUP = 1;          // 群聊
 }
+```
 
+### 3.2 消息结构
+
+```protobuf
+// 聊天消息（加密前）
 message ChatMessage {
-  string message_id = 1;
-  string sender_id = 2;
-  string conversation_id = 3;
+  string message_id = 1;        // 消息唯一标识
+  string sender_id = 2;         // 发送者 ID
+  string conversation_id = 3;   // 会话 ID
   ConversationType conv_type = 4;
   MessageType type = 5;
-  uint64 timestamp = 6;
-  bytes payload = 7;
-  uint32 version = 8;
+  uint64 timestamp = 6;         // 毫秒时间戳
+  bytes payload = 7;            // 类型相关的载荷
+  uint32 version = 8;           // 协议版本
 }
 
+// 加密信封（网络传输格式）
 message EncryptedEnvelope {
-  bytes encrypted_payload = 1;
-  bytes nonce = 2;
-  bytes signature = 3;
-  string sender_id = 4;
-  uint64 timestamp = 5;
+  bytes encrypted_payload = 1;  // AES-GCM 加密的 ChatMessage
+  bytes nonce = 2;              // 12 字节随机数
+  bytes signature = 3;          // ECDSA 签名
+  string sender_id = 4;         // 发送者 ID（明文，用于路由）
+  uint64 timestamp = 5;         // 时间戳（明文，用于排序）
   uint32 version = 6;
 }
 
+// 文本消息载荷
 message TextPayload {
   string content = 1;
 }
 
+// 撤回消息载荷
 message RevokePayload {
-  string target_message_id = 1;
-  string reason = 2;
+  string target_message_id = 1; // 被撤回的消息 ID
+  string reason = 2;            // 撤回原因（可选）
 }
 ```
 
-## 4. 安全方案实现
+---
 
-### 4.1 AES-256-GCM 加密
+## 4. 安全方案
 
-**实现代码** (`packages/sdk/src/crypto/aes.ts`):
-```typescript
-const ALGORITHM = 'AES-GCM';
-const KEY_LENGTH = 256;
-const NONCE_LENGTH = 12;
-const TAG_LENGTH = 128;
+### 4.1 加密方案选择
 
-export async function encrypt(
-  plaintext: Uint8Array,
-  key: Uint8Array,
-  nonce?: Uint8Array
-): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }> {
-  const iv = nonce ?? generateNonce();
-  const cryptoKey = await importKey(key);
-  
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: ALGORITHM, iv, tagLength: TAG_LENGTH },
-    cryptoKey,
-    plaintext
-  );
+本项目**自行实现**端到端加密，而非使用 Waku 的 payload 加密方案（如 WAKU2-NOISE），原因：
 
-  return { ciphertext: new Uint8Array(ciphertext), nonce: iv };
-}
+1. **灵活性**：可以针对单聊/群聊使用不同的密钥派生策略
+2. **可控性**：完全掌控加密流程，便于调试和审计
+3. **简单性**：WAKU2-NOISE 主要用于节点间通信，对应用层消息加密过于复杂
 
-export async function decrypt(
-  ciphertext: Uint8Array,
-  key: Uint8Array,
-  nonce: Uint8Array
-): Promise<Uint8Array> {
-  const cryptoKey = await importKey(key);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: ALGORITHM, iv: nonce, tagLength: TAG_LENGTH },
-    cryptoKey,
-    ciphertext
-  );
-  return new Uint8Array(plaintext);
-}
+### 4.2 加密算法
+
+| 用途 | 算法 | 说明 |
+|------|------|------|
+| 消息加密 | AES-256-GCM | 对称加密，提供机密性和完整性 |
+| 密钥交换 | ECDH (secp256k1) | 单聊会话密钥派生 |
+| 消息签名 | ECDSA (secp256k1) | 防篡改，身份验证 |
+| 群组密钥分发 | ECIES | 加密群组密钥给新成员 |
+| 密钥派生 | HKDF-SHA256 | 从共享密钥派生会话密钥 |
+
+### 4.3 单聊密钥派生
+
+```
+1. Alice 和 Bob 各有密钥对 (a, A) 和 (b, B)
+2. 共享密钥: sharedSecret = ECDH(a, B) = ECDH(b, A)
+3. 会话密钥: sessionKey = HKDF(sharedSecret, conversationId, "encrypted-chat-session-key", 32)
+4. 会话 ID: conversationId = SHA256(sort(userId1, userId2).join(':'))[0:16]
 ```
 
-### 4.2 ECDH 密钥交换
+**特点**：
+- 相同的两个用户总是派生出相同的会话 ID 和会话密钥
+- 无需额外的密钥交换消息
 
-**实现代码** (`packages/sdk/src/crypto/ecdh.ts`):
-```typescript
-export function computeSharedSecret(
-  privateKey: Uint8Array,
-  publicKey: Uint8Array
-): Uint8Array {
-  const sharedPoint = secp256k1.getSharedSecret(privateKey, publicKey, true);
-  return sharedPoint.slice(1); // x-coordinate
-}
+### 4.4 群聊密钥管理
 
-export function deriveSessionKey(
-  myPrivateKey: Uint8Array,
-  peerPublicKey: Uint8Array,
-  conversationId: string
-): Uint8Array {
-  const sharedSecret = computeSharedSecret(myPrivateKey, peerPublicKey);
-  return hkdf(sha256, sharedSecret, conversationId, 'encrypted-chat-session-key', 32);
-}
-
-export function deriveConversationId(userId1: string, userId2: string): string {
-  const sorted = [userId1, userId2].sort();
-  const combined = sorted.join(':');
-  const hash = sha256(new TextEncoder().encode(combined));
-  return bytesToHex(hash.slice(0, 16));
-}
+```
+1. 创建群组时，生成随机群组密钥 groupKey
+2. 邀请成员时，使用 ECIES 加密 groupKey 给该成员
+3. 成员加入时，使用自己的私钥解密获得 groupKey
+4. 所有成员使用相同的 groupKey 加密消息
 ```
 
-### 4.3 ECDSA 签名
-
-**实现代码** (`packages/sdk/src/crypto/ecdsa.ts`):
-```typescript
-export async function sign(message: Uint8Array, privateKey: Uint8Array): Promise<Uint8Array> {
-  const msgHash = sha256(message);
-  const signature = await secp256k1.signAsync(msgHash, privateKey);
-  return signature.toCompactRawBytes();
-}
-
-export function verify(
-  message: Uint8Array,
-  signature: Uint8Array,
-  publicKey: Uint8Array
-): boolean {
-  const msgHash = sha256(message);
-  const sig = secp256k1.Signature.fromCompact(signature);
-  return secp256k1.verify(sig, msgHash, publicKey);
-}
+**ECIES 加密流程**：
+```
+encrypt(recipientPublicKey, groupKey):
+  1. 生成临时密钥对 (e, E)
+  2. sharedSecret = ECDH(e, recipientPublicKey)
+  3. encKey = HKDF(sharedSecret, "ecies-encryption")
+  4. ciphertext = AES-GCM(encKey, groupKey)
+  5. return E || nonce || ciphertext
 ```
 
-### 4.4 ECIES 加密（群组密钥分发）
+### 4.5 消息签名
 
-**实现代码** (`packages/sdk/src/crypto/ecies.ts`):
-```typescript
-export async function eciesEncrypt(
-  publicKey: Uint8Array,
-  plaintext: Uint8Array
-): Promise<Uint8Array> {
-  // Generate ephemeral key pair
-  const ephemeralPrivateKey = secp256k1.utils.randomPrivateKey();
-  const ephemeralPublicKey = secp256k1.getPublicKey(ephemeralPrivateKey, true);
-  
-  // Derive shared secret
-  const sharedSecret = computeSharedSecret(ephemeralPrivateKey, publicKey);
-  const encryptionKey = deriveKey(sharedSecret, 'ecies-encryption');
-  
-  // Encrypt with AES-GCM
-  const { ciphertext, nonce } = await encrypt(plaintext, encryptionKey);
-  
-  // Return: ephemeralPublicKey || nonce || ciphertext
-  return concatBytes(ephemeralPublicKey, nonce, ciphertext);
-}
-
-export async function eciesDecrypt(
-  privateKey: Uint8Array,
-  encrypted: Uint8Array
-): Promise<Uint8Array> {
-  // Parse components
-  const ephemeralPublicKey = encrypted.slice(0, 33);
-  const nonce = encrypted.slice(33, 45);
-  const ciphertext = encrypted.slice(45);
-  
-  // Derive shared secret
-  const sharedSecret = computeSharedSecret(privateKey, ephemeralPublicKey);
-  const encryptionKey = deriveKey(sharedSecret, 'ecies-encryption');
-  
-  // Decrypt
-  return decrypt(ciphertext, encryptionKey, nonce);
-}
+每条消息都包含 ECDSA 签名，签名内容：
+```
+signedData = messageId || senderId || conversationId || timestamp || messageType || payload
+signature = ECDSA.sign(SHA256(signedData), senderPrivateKey)
 ```
 
-## 5. 撤回机制实现
+**验证流程**：
+1. 接收方从消息中提取签名
+2. 使用发送者公钥验证签名
+3. 签名无效的消息被丢弃
 
-### 5.1 撤回消息格式
+---
 
-```typescript
-interface RevokePayload {
-  targetMessageId: string;  // 被撤回的消息 ID
-  reason?: string;          // 撤回原因（可选）
-}
+## 5. 撤回与删除
+
+### 5.1 撤回机制
+
+**撤回 vs 删除**：
+
+| 操作 | 影响范围 | 网络消息 | 其他用户 |
+|------|---------|---------|---------|
+| 撤回 | 所有参与者 | 发送 tombstone | 看到"已撤回" |
+| 删除 | 仅本地 | 无 | 不受影响 |
+
+**撤回流程**：
+```
+1. 用户 A 发送消息 M (messageId = "abc123")
+2. 用户 A 决定撤回
+3. A 发送撤回消息: { type: REVOKE, payload: { targetMessageId: "abc123" } }
+4. B 和 C 收到撤回消息
+5. B 和 C 验证权限（A 是原发送者）
+6. B 和 C 将 "abc123" 标记为已撤回
+7. UI 显示"此消息已被撤回"
 ```
 
-### 5.2 撤回权限验证
+### 5.2 撤回权限
 
-**实现代码** (`packages/sdk/src/message/revoke-permission.ts`):
 ```typescript
-export function canRevoke(
-  revokerId: string,
-  originalSenderId: string,
-  conversationType: 'direct' | 'group',
-  admins?: string[]
-): boolean {
-  // 原发送者可以撤回
+function canRevoke(revokerId: string, originalSenderId: string, conversation: Conversation): boolean {
+  // 原发送者可以撤回自己的消息
   if (revokerId === originalSenderId) {
     return true;
   }
   
-  // 群聊中管理员可以撤回
-  if (conversationType === 'group' && admins?.includes(revokerId)) {
+  // 群聊中，管理员可以撤回任何人的消息
+  if (conversation.type === 'group' && conversation.admins.includes(revokerId)) {
     return true;
   }
   
@@ -344,236 +311,225 @@ export function canRevoke(
 }
 ```
 
-### 5.3 撤回处理流程
+### 5.3 去中心化网络中撤回的边界
 
-**实现代码** (`packages/sdk/src/message/revoke-handler.ts`):
+**现实约束**：
+
+1. **无法强制删除**：消息一旦发送到网络，会被多个节点接收和存储。没有中心化的权威可以强制所有节点删除数据。
+
+2. **Store 节点保留**：Store 节点会保存历史消息，即使发送了撤回消息，原消息仍可能存在于 Store 中。
+
+3. **离线用户**：离线用户上线后，可能先收到原消息，再收到撤回消息。需要客户端正确处理这种时序。
+
+4. **恶意节点**：恶意节点可能故意保留和传播已撤回的消息。
+
+**本项目的解决方案**：
+
+1. **tombstone 机制**：撤回消息作为控制消息发送，包含被撤回的 messageId 和发送者签名。
+
+2. **历史合并**：从 Store 拉取历史时，同时拉取撤回消息，先处理撤回再显示消息。
+
+3. **本地标记**：客户端在本地存储中标记已撤回的消息，即使重新收到原消息也不显示。
+
+4. **UI 处理**：已撤回的消息显示为"此消息已被撤回"，而非完全隐藏（让用户知道曾有消息）。
+
+**诚实声明**：本方案只能保证"诚实客户端"正确处理撤回。无法阻止：
+- 用户在撤回前截图
+- 恶意客户端忽略撤回消息
+- 第三方从网络中抓取原始消息
+
+---
+
+## 6. 可靠性保障
+
+### 6.1 消息去重
+
+使用内存缓存 + TTL 机制：
+
 ```typescript
-export async function handleRevokeMessage(
-  revokePayload: RevokePayload,
-  senderId: string,
-  conversation: Conversation,
-  storage: MessageStorage
-): Promise<boolean> {
-  // 获取原消息
-  const originalMessage = await storage.loadMessage(
-    conversation.id,
-    revokePayload.targetMessageId
-  );
-  
-  if (!originalMessage) {
-    return false;
-  }
-  
-  // 验证权限
-  if (!conversation.canRevoke(senderId, originalMessage.senderId)) {
-    return false;
-  }
-  
-  // 标记为已撤回
-  await storage.markAsRevoked(
-    revokePayload.targetMessageId,
-    senderId,
-    revokePayload.reason
-  );
-  
-  return true;
-}
-```
-
-### 5.4 撤回的边界说明
-
-**去中心化网络的现实约束**：
-1. 消息一旦发送到网络，会被多个节点接收和存储
-2. 无法强制所有节点删除已存储的消息
-3. 离线节点在上线后仍可能从 Store 节点获取到原消息
-4. 恶意节点可能故意保留和传播已撤回的消息
-
-**本项目的撤回实现方案**：
-1. 发送撤回控制消息（tombstone），包含被撤回的 messageId
-2. 控制消息包含发送者签名，用于权限验证
-3. 客户端收到撤回消息后，将对应消息标记为"已撤回"
-4. UI 层显示"此消息已被撤回"而非原内容
-5. 从 Store 拉取历史时，同时拉取撤回消息，合并处理
-
-## 6. 消息去重实现
-
-**实现代码** (`packages/sdk/src/message/dedupe-cache.ts`):
-```typescript
-export class DedupeCache {
+class DedupeCache {
   private cache: Map<string, number> = new Map();
-  private maxSize: number = 10000;
-  private ttl: number = 3600000; // 1 hour
-
-  isDuplicate(messageId: string): boolean {
-    const timestamp = this.cache.get(messageId);
-    if (timestamp && Date.now() - timestamp < this.ttl) {
-      return true;
-    }
-    return false;
-  }
+  private maxSize = 10000;
+  private ttl = 3600000; // 1 小时
 
   checkAndAdd(messageId: string): boolean {
     if (this.isDuplicate(messageId)) {
-      return true;
+      return true; // 是重复消息
     }
     this.add(messageId);
     return false;
   }
-
-  add(messageId: string): void {
-    if (this.cache.size >= this.maxSize) {
-      this.cleanup();
-    }
-    this.cache.set(messageId, Date.now());
-  }
-
-  private cleanup(): void {
-    const now = Date.now();
-    for (const [id, timestamp] of this.cache) {
-      if (now - timestamp > this.ttl) {
-        this.cache.delete(id);
-      }
-    }
-  }
 }
 ```
 
-## 7. 消息重发机制
+### 6.2 消息重发
 
-**实现代码** (`packages/sdk/src/message/sender.ts`):
+指数退避重试策略：
+
 ```typescript
-export class MessageSender {
+class MessageSender {
   private maxRetries = 3;
   private baseDelay = 1000;
 
-  async send(
-    adapter: WakuAdapter,
-    contentTopic: string,
-    payload: Uint8Array
-  ): Promise<void> {
-    let lastError: Error | null = null;
-
+  async send(adapter: WakuAdapter, topic: string, payload: Uint8Array): Promise<void> {
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
-        await adapter.publish(contentTopic, payload);
+        await adapter.publish(topic, payload);
         return;
       } catch (error) {
-        lastError = error as Error;
         const delay = this.baseDelay * Math.pow(2, attempt);
-        await this.sleep(delay);
+        await sleep(delay);
       }
     }
-
-    throw new Error(`Failed after ${this.maxRetries} attempts: ${lastError?.message}`);
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    throw new Error('Failed after max retries');
   }
 }
 ```
 
-## 8. 存储模块实现
+---
 
-### 8.1 存储接口
+## 7. 身份与存储
+
+### 7.1 身份管理
+
+每个用户有一个 secp256k1 密钥对：
 
 ```typescript
-export interface StorageBackend {
-  get(key: string): Promise<Uint8Array | null>;
-  set(key: string, value: Uint8Array): Promise<void>;
-  delete(key: string): Promise<void>;
-  list(prefix: string): Promise<string[]>;
+class Identity {
+  userId: string;      // hex(SHA256(publicKey)[0:16])
+  publicKey: Uint8Array;
+  privateKey: Uint8Array;
+
+  static create(): Identity {
+    const privateKey = secp256k1.utils.randomPrivateKey();
+    const publicKey = secp256k1.getPublicKey(privateKey, true);
+    const userId = generateUserId(publicKey);
+    return new Identity(userId, publicKey, privateKey);
+  }
+
+  async export(password: string): Promise<string> {
+    // 使用 AES-GCM 加密私钥，密钥从密码派生
+    const key = await deriveKeyFromPassword(password);
+    const encrypted = await encrypt(this.privateKey, key);
+    return JSON.stringify({ userId, publicKey, encrypted });
+  }
+
+  static async import(data: string, password: string): Promise<Identity> {
+    const { userId, publicKey, encrypted } = JSON.parse(data);
+    const key = await deriveKeyFromPassword(password);
+    const privateKey = await decrypt(encrypted, key);
+    return new Identity(userId, publicKey, privateKey);
+  }
 }
 ```
 
-### 8.2 LevelDB 实现（Node.js）
+### 7.2 存储后端
 
-**实现代码** (`packages/sdk/src/storage/leveldb-backend.ts`):
+| 环境 | 后端 | 说明 |
+|------|------|------|
+| 浏览器 | IndexedDB | 持久化，刷新不丢失 |
+| Node.js | LevelDB | 文件存储 |
+| 测试 | InMemory | 内存存储 |
+
+---
+
+## 8. SDK API
+
+### 8.1 初始化
+
 ```typescript
-export class LevelDBBackend implements StorageBackend {
-  private db: Level<string, Uint8Array>;
+import { ChatClient, Identity } from '@waku-chat/sdk';
 
-  constructor(path: string) {
-    this.db = new Level(path, { valueEncoding: 'view' });
-  }
-
-  async get(key: string): Promise<Uint8Array | null> {
-    try {
-      return await this.db.get(key);
-    } catch (error) {
-      if ((error as any).code === 'LEVEL_NOT_FOUND') {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  async set(key: string, value: Uint8Array): Promise<void> {
-    await this.db.put(key, value);
-  }
-
-  async delete(key: string): Promise<void> {
-    await this.db.del(key);
-  }
-}
+const client = new ChatClient();
+await client.init({
+  lightMode: true,           // 使用轻节点模式
+  bootstrapNodes: [...],     // 可选，自定义引导节点
+  onConnectionChange: (connected) => { ... },
+  onError: (error) => { ... },
+});
 ```
 
-### 8.3 IndexedDB 实现（浏览器）
+### 8.2 身份管理
 
-**实现代码** (`packages/sdk/src/storage/indexeddb-backend.ts`):
 ```typescript
-export class IndexedDBBackend implements StorageBackend {
-  private dbName: string;
-  private storeName = 'kv-store';
-  private db: IDBDatabase | null = null;
+// 创建新身份
+const identity = Identity.create();
+await client.setIdentity(identity);
 
-  constructor(dbName: string = 'waku-chat') {
-    this.dbName = dbName;
-  }
+// 导出身份（加密）
+const exported = await identity.export('password');
 
-  async get(key: string): Promise<Uint8Array | null> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(this.storeName, 'readonly');
-      const store = tx.objectStore(this.storeName);
-      const request = store.get(key);
-      request.onsuccess = () => resolve(request.result?.value ?? null);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  async set(key: string, value: Uint8Array): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(this.storeName, 'readwrite');
-      const store = tx.objectStore(this.storeName);
-      const request = store.put({ key, value });
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-}
+// 导入身份
+const identity = await Identity.import(exported, 'password');
 ```
 
-## 9. 正确性属性（Correctness Properties）
+### 8.3 会话管理
 
-### CP1: 加密一致性
-对于任意明文 M 和密钥 K，`decrypt(encrypt(M, K), K) = M`
+```typescript
+// 创建单聊
+const dm = await client.createDirectConversation(peerUserId, peerPublicKey);
 
-### CP2: 签名不可伪造
-对于任意消息 M，只有持有私钥的用户才能生成有效签名
+// 创建群聊
+const group = await client.createGroupConversation('Group Name');
 
-### CP3: ECDH 对称性
-对于任意两个密钥对 (a, A) 和 (b, B)，`ECDH(a, B) = ECDH(b, A)`
+// 邀请成员
+const invite = await client.inviteToGroup(groupId, userId, userPublicKey);
 
-### CP4: 消息去重
-相同 messageId 的消息只会被处理一次
+// 加入群聊
+const group = await client.joinGroupConversation(inviteData);
+```
 
-### CP5: 撤回权限
-只有原发送者或群管理员的撤回请求才会被接受
+### 8.4 消息收发
 
-### CP6: 消息完整性
-任何对消息内容的篡改都会导致签名验证失败
+```typescript
+// 发送消息
+const messageId = await client.sendMessage(conversationId, 'Hello!');
+
+// 订阅消息
+const unsubscribe = await client.subscribe(conversationId, (message) => {
+  console.log(`${message.senderId}: ${message.content}`);
+});
+
+// 拉取历史
+const history = await client.fetchHistory(conversationId, { limit: 50 });
+```
+
+### 8.5 撤回与删除
+
+```typescript
+// 撤回消息（通知所有参与者）
+await client.revokeMessage(conversationId, messageId);
+
+// 本地删除（仅本地）
+await client.deleteLocalMessage(conversationId, messageId);
+```
+
+---
+
+## 9. 项目结构
+
+```
+packages/
+├── sdk/                      # 核心 SDK
+│   └── src/
+│       ├── client/           # ChatClient 主类
+│       ├── identity/         # 身份管理
+│       ├── conversation/     # 会话管理
+│       ├── message/          # 消息处理（序列化、签名、去重、重发）
+│       ├── crypto/           # 加密模块（AES、ECDH、ECDSA、ECIES）
+│       ├── waku/             # Waku 适配层
+│       ├── storage/          # 存储模块
+│       └── proto/            # Protobuf 定义
+├── cli/                      # CLI Demo
+│   └── src/commands/         # 命令实现
+└── web/                      # Web Demo
+    └── src/
+        ├── components/       # React 组件
+        ├── context/          # 状态管理
+        └── utils/            # 工具函数
+```
+
+---
 
 ## 10. 技术栈
 
@@ -582,37 +538,7 @@ export class IndexedDBBackend implements StorageBackend {
 | 语言 | TypeScript | 5.x |
 | 运行时 | Node.js | 18+ |
 | Waku SDK | @waku/sdk | 0.0.36 |
-| 加密库 | @noble/secp256k1 | 2.1.0 |
-| 哈希库 | @noble/hashes | 1.4.0 |
-| 序列化 | protobufjs | 7.2.6 |
-| 测试 | Vitest | 1.4.0 |
-| PBT | fast-check | 3.17.0 |
-| CLI | Commander.js | 12.0.0 |
-| Web | React | 18.2.0 |
-| 构建 | Vite | 5.2.0 |
-| 包管理 | pnpm | 9.0.0 |
-
-## 11. 项目结构
-
-```
-waku-encrypted-chat/
-├── packages/
-│   ├── sdk/                    # 核心 SDK 库
-│   │   ├── src/
-│   │   │   ├── client/         # ChatClient 主类
-│   │   │   ├── identity/       # 身份管理
-│   │   │   ├── conversation/   # 会话管理
-│   │   │   ├── message/        # 消息处理
-│   │   │   ├── crypto/         # 加密模块
-│   │   │   ├── waku/           # Waku 适配层
-│   │   │   ├── storage/        # 存储模块
-│   │   │   └── proto/          # Protobuf 定义
-│   │   └── package.json
-│   ├── cli/                    # CLI Demo
-│   │   └── src/commands/       # 命令实现
-│   └── web/                    # Web Demo
-│       └── src/components/     # React 组件
-├── docker/                     # Docker 配置
-├── scripts/                    # 启动脚本
-└── docs/                       # 文档
-```
+| 加密库 | @noble/secp256k1, @noble/hashes | 2.x, 1.x |
+| 测试 | Vitest | 1.x |
+| Web 框架 | React + Vite | 18.x, 5.x |
+| 包管理 | pnpm | 9.x |
