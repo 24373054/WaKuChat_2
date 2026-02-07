@@ -7,7 +7,7 @@
 - 🔐 端到端加密（AES-256-GCM + ECDSA 签名）
 - 💬 支持单聊和群聊
 - 🌐 去中心化，无需服务器
-- 📱 Web 客户端 + CLI 工具
+- 📱 Web 客户端
 - 🔄 消息撤回
 - 📜 历史消息查询
 
@@ -94,7 +94,6 @@ packages/
 ## 文档
 
 - [设计文档](docs/design.md)
-- [演示指南](docs/demo-guide.md)
 
 ## License
 
