@@ -588,49 +588,48 @@ async function chatInConversation(conversationId: string): Promise<void> {
     return;
   }
 
-  const conv = getConversation(conversationId);
-  if (!conv) {
+  const storedConv = getConversation(conversationId);
+  if (!storedConv) {
     console.error('❌ Conversation not found in local storage');
     await pause();
     return;
   }
 
-  // 恢复会话到 client
-  console.log('\n🔄 Restoring conversation...');
-  try {
-    // 检查会话是否已经在 client 中
-    let existingConv = client.getConversation(conv.id);
-    
-    if (!existingConv) {
-      // 使用 restoreConversation 方法恢复会话
-      await client.restoreConversation({
-        id: conv.id,
-        type: conv.type,
-        name: conv.name,
-        members: conv.members,
-        admins: conv.admins,
-        sessionKey: hexToBytes(conv.sessionKey),
+  // 检查会话是否已经在 client 中
+  let conversation = client.getConversation(conversationId);
+  
+  if (!conversation) {
+    // 需要恢复会话
+    console.log('\n🔄 Restoring conversation...');
+    try {
+      conversation = await client.restoreConversation({
+        id: storedConv.id,
+        type: storedConv.type,
+        name: storedConv.name,
+        members: storedConv.members,
+        admins: storedConv.admins,
+        sessionKey: hexToBytes(storedConv.sessionKey),
         groupKeyVersion: 1,
       });
       
       // 如果是单聊，注册对方的公钥
-      if (conv.type === 'direct' && conv.peerPublicKey) {
-        const peerUserId = conv.members.find(m => m !== currentIdentity!.userId) || conv.members[0];
-        client.registerPublicKey(peerUserId, hexToBytes(conv.peerPublicKey));
+      if (storedConv.type === 'direct' && storedConv.peerPublicKey) {
+        const peerUserId = storedConv.members.find(m => m !== currentIdentity!.userId) || storedConv.members[0];
+        client.registerPublicKey(peerUserId, hexToBytes(storedConv.peerPublicKey));
       }
       
       console.log('✅ Conversation restored');
-    } else {
-      console.log('✅ Conversation already active');
+    } catch (error) {
+      console.error('❌ Could not restore conversation:', (error as Error).message);
+      await pause();
+      return;
     }
-  } catch (error) {
-    console.error('❌ Could not restore conversation:', (error as Error).message);
-    await pause();
-    return;
+  } else {
+    console.log('✅ Conversation ready');
   }
 
   console.clear();
-  const convName = conv.name || truncate(conv.id, 20);
+  const convName = storedConv.name || truncate(storedConv.id, 20);
   console.log(`\n💬 ${convName}\n`);
   console.log('─'.repeat(60));
   console.log('  Type message and press Enter to send');
@@ -721,8 +720,8 @@ async function chatInConversation(conversationId: string): Promise<void> {
       continue;
     }
 
-    if (trimmed === '/invite' && conv.type === 'group') {
-      await generateInvite(conversationId, conv.name || 'Group');
+    if (trimmed === '/invite' && storedConv.type === 'group') {
+      await generateInvite(conversationId, storedConv.name || 'Group');
       continue;
     }
 
