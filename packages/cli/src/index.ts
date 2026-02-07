@@ -22,5 +22,10 @@ program.addCommand(conversationCommand);
 program.addCommand(messageCommand);
 program.addCommand(chatCommand);
 
+// Show help if no command provided
+if (process.argv.length <= 2) {
+  program.help();
+}
+
 // Parse arguments
 program.parse();
