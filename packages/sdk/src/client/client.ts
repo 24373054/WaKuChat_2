@@ -291,6 +291,7 @@ export class ChatClient implements IChatClient {
 
     // Serialize the text payload
     const payload = serializeTextPayload(content);
+    console.log('[Debug] Text payload size:', payload.length);
 
     // Create the chat message
     const chatMessage = serializeChatMessage({
@@ -302,6 +303,7 @@ export class ChatClient implements IChatClient {
       timestamp,
       payload,
     });
+    console.log('[Debug] Chat message size:', chatMessage.length);
 
     // Sign the message
     const signature = await signMessage(
@@ -315,6 +317,7 @@ export class ChatClient implements IChatClient {
       },
       this.identity!.privateKey
     );
+    console.log('[Debug] Signature size:', signature.length);
 
     // Create encrypted envelope
     const envelope = await createEncryptedEnvelope({
@@ -324,6 +327,7 @@ export class ChatClient implements IChatClient {
       timestamp,
       signature,
     });
+    console.log('[Debug] Envelope size:', envelope.length);
 
     // Generate content topic
     const contentTopic = this.getContentTopic(conversation);
@@ -473,18 +477,25 @@ export class ChatClient implements IChatClient {
   ): Promise<void> {
     const conversation = this.conversationManager!.getConversation(conversationId);
     if (!conversation) {
+      console.log('[Debug] Conversation not found:', conversationId);
       return;
     }
 
     try {
+      console.log('[Debug] Raw payload size:', payload.length, 'first bytes:', Array.from(payload.slice(0, 20)));
+      
       // Open the encrypted envelope
       const decoded = await openEncryptedEnvelope(payload, conversation.sessionKey);
+      console.log('[Debug] Envelope decoded, senderId:', decoded.senderId);
+      console.log('[Debug] Decrypted payload size:', decoded.payload.length, 'first bytes:', Array.from(decoded.payload.slice(0, 20)));
 
       // Deserialize the chat message
       const chatMessage = deserializeChatMessage(decoded.payload);
+      console.log('[Debug] Message deserialized, messageId:', chatMessage.messageId);
 
       // Check for duplicates
       if (this.dedupeCache.checkAndAdd(chatMessage.messageId)) {
+        console.log('[Debug] Duplicate message, skipping');
         return; // Duplicate message
       }
 
@@ -546,8 +557,8 @@ export class ChatClient implements IChatClient {
         }
       }
     } catch (error) {
-      // Silently ignore decode errors - these are usually messages from other apps
-      // on the public Waku network that use different message formats
+      // Log decode errors for debugging
+      console.log('[Debug] Failed to decode message:', (error as Error).message);
       if (this.config.onError) {
         this.config.onError(error as Error);
       }

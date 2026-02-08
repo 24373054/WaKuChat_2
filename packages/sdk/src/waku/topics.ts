@@ -13,6 +13,12 @@ export const DEFAULT_PUBSUB_TOPIC = '/waku/2/default-waku/proto';
 export const CONTENT_TOPIC_VERSION = '1';
 
 /**
+ * Unique application identifier to avoid conflicts with other apps on public Waku network
+ * This is a random string that makes our topics unique
+ */
+export const APP_ID = 'wkcht-v1';
+
+/**
  * Content topic types
  */
 export type ContentTopicType = 'dm' | 'group' | 'system';
@@ -29,9 +35,8 @@ export type ContentTopicType = 'dm' | 'group' | 'system';
  * @returns Content topic string
  */
 export function generateContentTopic(type: ContentTopicType, id: string): string {
-  // Combine type and id into a single content-topic-name to avoid extra slashes
-  // Use a separator that won't conflict with the format
-  const contentTopicName = `${type}-${id}`;
+  // Include APP_ID to avoid conflicts with other apps
+  const contentTopicName = `${APP_ID}-${type}-${id}`;
   return `/waku-chat/${CONTENT_TOPIC_VERSION}/${contentTopicName}/proto`;
 }
 
@@ -93,8 +98,8 @@ export function parseContentTopic(contentTopic: string): {
   type: ContentTopicType;
   id: string;
 } | null {
-  // Format: /waku-chat/{version}/{type}-{id}/proto
-  const regex = /^\/waku-chat\/(\d+)\/(dm|group|system)-([^/]+)\/proto$/;
+  // Format: /waku-chat/{version}/{APP_ID}-{type}-{id}/proto
+  const regex = new RegExp(`^/waku-chat/(\\d+)/${APP_ID}-(dm|group|system)-([^/]+)/proto$`);
   const match = contentTopic.match(regex);
   
   if (!match) {

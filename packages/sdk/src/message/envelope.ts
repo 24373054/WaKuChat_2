@@ -85,15 +85,34 @@ export async function openEncryptedEnvelope(
   data: Uint8Array,
   sessionKey: Uint8Array
 ): Promise<DecodedEnvelope> {
-  // Decode the envelope
-  const envelope = encrypted_chat.EncryptedEnvelope.decode(data);
+  // First, try to decode the envelope
+  let envelope;
+  try {
+    envelope = encrypted_chat.EncryptedEnvelope.decode(data);
+  } catch (error) {
+    throw new Error('Invalid envelope format: ' + (error as Error).message);
+  }
+
+  // Validate envelope has required fields
+  if (!envelope.encryptedPayload || envelope.encryptedPayload.length === 0) {
+    throw new Error('Invalid envelope: missing encrypted payload');
+  }
+  if (!envelope.nonce || envelope.nonce.length !== 12) {
+    throw new Error('Invalid envelope: missing or invalid nonce (must be 12 bytes)');
+  }
+  if (!envelope.senderId || envelope.senderId.length === 0) {
+    throw new Error('Invalid envelope: missing sender ID');
+  }
+  if (envelope.version !== ENVELOPE_VERSION) {
+    throw new Error(`Invalid envelope version: expected ${ENVELOPE_VERSION}, got ${envelope.version}`);
+  }
 
   // Convert protobuf buffers to proper Uint8Arrays
   const encryptedPayload = toUint8Array(envelope.encryptedPayload);
   const nonce = toUint8Array(envelope.nonce);
   const signature = toUint8Array(envelope.signature);
 
-  // Decrypt the payload
+  // Decrypt the payload - AES-GCM will throw if authentication fails
   const payload = await decrypt(encryptedPayload, sessionKey, nonce);
 
   return {

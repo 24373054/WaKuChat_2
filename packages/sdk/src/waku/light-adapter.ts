@@ -156,6 +156,8 @@ export class LightWakuAdapter extends BaseWakuAdapter {
     const node = this.getNode();
     const encoder = node.createEncoder({ contentTopic });
     
+    console.log('[Waku] Publishing message, size:', payload.length, 'to topic:', contentTopic);
+    
     const result = await node.lightPush.send(encoder, { payload });
     
     // 只要有一个成功就算成功（与工作版本一致）
@@ -163,11 +165,7 @@ export class LightWakuAdapter extends BaseWakuAdapter {
     const hasFailure = result.failures && result.failures.length > 0;
     
     if (hasSuccess) {
-      // 有成功的发送，忽略部分失败
-      if (hasFailure) {
-        console.warn('Message sent with partial failures:', 
-          result.failures.map(f => String(f.error || 'Unknown')).join(', '));
-      }
+      console.log('[Waku] Message published successfully');
       return;
     }
     
@@ -184,11 +182,13 @@ export class LightWakuAdapter extends BaseWakuAdapter {
 
     const callback = (message: { payload?: Uint8Array }) => {
       if (message.payload) {
+        console.log('[Waku] Received message on topic, payload size:', message.payload.length);
         handler(message.payload);
       }
     };
 
     const subscribeResult = await node.filter.subscribe([decoder], callback);
+    console.log('[Waku] Subscribed to topic:', contentTopic);
     
     const syncUnsubscribe = () => {
       const result = subscribeResult as any;
